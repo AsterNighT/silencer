@@ -11,7 +11,6 @@ namespace silencer
         public FormMain()
         {
             InitializeComponent();
-            rwLock = new ReaderWriterLock();
             isRunning = false;
             buttonBegin.Enabled = !isRunning;
             buttonEnd.Enabled = isRunning;
@@ -25,7 +24,7 @@ namespace silencer
         // I can hardly come up with such a situation in which multiple
         // threads are reading the whitelist at the same time.
         // If so, the event handler will be running too slow.
-        ReaderWriterLock rwLock;
+        ReaderWriterLock rwLock = new ReaderWriterLock();
         List<string> globalWhitelist;
 
         delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
@@ -45,7 +44,7 @@ namespace silencer
         private const uint WINEVENT_OUTOFCONTEXT = 0;
         private const uint EVENT_SYSTEM_FOREGROUND = 3;
 
-        private uint GetForegroundWindowPID()
+        private uint getForegroundWindowPID()
         {
             uint pid;
             IntPtr handle = GetForegroundWindow();
@@ -54,16 +53,16 @@ namespace silencer
             return pid;
         }
 
-        private string GetForegroundWindowProcessName()
+        private string getForegroundWindowProcessName()
         {
-            uint pid = GetForegroundWindowPID();
+            uint pid = getForegroundWindowPID();
             return Process.GetProcessById((int)pid).ProcessName;
         }
 
-        public void WinEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
+        private void winEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
         {
-            
-            var foregroundName = GetForegroundWindowProcessName();
+
+            var foregroundName = getForegroundWindowProcessName();
             Debug.WriteLine("Foreground name:" + foregroundName);
 
             // Do not care about the waiting time ,just make it INF;
@@ -74,47 +73,25 @@ namespace silencer
             // The rendering process may be not the audio process,
             // chrome is a great example.
             // So here use process name rather than process id.
-            whitelist.Add(GetForegroundWindowProcessName());
+            whitelist.Add(getForegroundWindowProcessName());
 
-            // Windows Audio API is troublesome. Some of the code in CSCore
-            // must be executed out of the UI Thread.
-            // Create a new task to avoid any exception.
-            Task.Run(()=>Mute(whitelist)).Wait();
+            mute(whitelist);
         }
 
-        private int Mute(HashSet<string> whitelist)
+        private int mute(HashSet<string> whitelist)
         {
-            using (var sessionManager = GetDefaultAudioSessionManager2(DataFlow.Render))
+            var sessionEnumerator = AudioSession.GetAudioSessionEnumerator();
+            foreach (var session in sessionEnumerator)
             {
-                using (var sessionEnumerator = sessionManager.GetSessionEnumerator())
+                using (var simpleVolume = session.QueryInterface<SimpleAudioVolume>())
+                using (var sessionControl = session.QueryInterface<AudioSessionControl2>())
                 {
-                    foreach (var session in sessionEnumerator)
-                    {
-                        using (var simpleVolume = session.QueryInterface<SimpleAudioVolume>())
-                        using (var sessionControl = session.QueryInterface<AudioSessionControl2>())
-                        {
-                            Debug.WriteLine("process id:" + sessionControl.ProcessID);
-                            Debug.WriteLine("process name:" + sessionControl.Process.ProcessName);
-                            simpleVolume.IsMuted = !whitelist.Contains(sessionControl.Process.ProcessName);
-                        }
-                    }
+                    Debug.WriteLine("process id:" + sessionControl.ProcessID);
+                    Debug.WriteLine("process name:" + sessionControl.Process.ProcessName);
+                    simpleVolume.IsMuted = !whitelist.Contains(sessionControl.Process.ProcessName);
                 }
             }
-
             return 0;
-        }
-
-        public static AudioSessionManager2 GetDefaultAudioSessionManager2(DataFlow dataFlow)
-        {
-            using (var enumerator = new MMDeviceEnumerator())
-            {
-                using (var device = enumerator.GetDefaultAudioEndpoint(dataFlow, Role.Multimedia))
-                {
-                    Debug.WriteLine("DefaultDevice: " + device.FriendlyName);
-                    var sessionManager = AudioSessionManager2.FromMMDevice(device);
-                    return sessionManager;
-                }
-            }
         }
 
         private void FormMain_Load(object sender, EventArgs e)
@@ -123,7 +100,7 @@ namespace silencer
             ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
             listBoxWhitelist.Items.Clear();
             rwLock.AcquireWriterLock(int.MaxValue);
-            globalWhitelist = new List<string>(settings.AppSettings.Settings["whitelist"]?.Value.Split(new char[]{ ';'})??new string[] {});   
+            globalWhitelist = new List<string>(settings.AppSettings.Settings["whitelist"]?.Value.Split(new char[] { ';' }) ?? new string[] { });
             listBoxWhitelist.Items.AddRange(globalWhitelist.ToArray());
             rwLock.ReleaseWriterLock();
         }
@@ -131,7 +108,7 @@ namespace silencer
         private void beginListening(object sender, EventArgs e)
         {
             isRunning = true;
-            dele = new WinEventDelegate(WinEventProc);
+            dele = new WinEventDelegate(winEventProc);
             hWinEventHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, dele, 0, 0, WINEVENT_OUTOFCONTEXT);
             buttonBegin.Enabled = !isRunning;
             buttonEnd.Enabled = isRunning;
@@ -153,6 +130,7 @@ namespace silencer
                 if (result == DialogResult.OK)
                 {
                     string name = form.selection;            //values preserved after close
+                    if (name == "") return;
                     rwLock.AcquireWriterLock(int.MaxValue);
                     globalWhitelist.Add(name);
                     listBoxWhitelist.Items.Add(name);
@@ -160,7 +138,7 @@ namespace silencer
                     rwLock.ReleaseWriterLock();
                 }
             }
-            
+
         }
 
         private void buttonDeleteItem_Click(object sender, EventArgs e)
@@ -177,7 +155,7 @@ namespace silencer
             var settings =
             ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
             rwLock.AcquireReaderLock(int.MaxValue);
-            settings.AppSettings.Settings.Remove("whitelist"); 
+            settings.AppSettings.Settings.Remove("whitelist");
             settings.AppSettings.Settings.Add("whitelist", string.Join(';', globalWhitelist));
             settings.Save(ConfigurationSaveMode.Modified);
             ConfigurationManager.RefreshSection("appSettings");

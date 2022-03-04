@@ -22,40 +22,24 @@ namespace silencer
 
         private void FormBrowser_Load(object sender, EventArgs e)
         {
-            Task.Run(() => loadListBox()).Wait();
-        }
-
-        private void loadListBox()
-        {
-            // Know for sure this is legal since we only use new thread
-            // to fix Windows Audio API issue
-            // Ignore silly compiler check
-            Control.CheckForIllegalCrossThreadCalls = false;
             listBoxProcessName.Items.Clear();
-            using (var sessionManager = FormMain.GetDefaultAudioSessionManager2(DataFlow.Render))
+            var sessionEnumerator = AudioSession.GetAudioSessionEnumerator();
+            foreach (var session in sessionEnumerator)
             {
-                using (var sessionEnumerator = sessionManager.GetSessionEnumerator())
+                using (var sessionControl = session.QueryInterface<AudioSessionControl2>())
                 {
-                    foreach (var session in sessionEnumerator)
+                    // Do not know what is this
+                    if (sessionControl.Process.ProcessName != "Idle")
                     {
-                        using (var sessionControl = session.QueryInterface<AudioSessionControl2>())
-                        {
-                            // Do not know what is this
-                            if (sessionControl.Process.ProcessName == "Idle")
-                            {
-                                listBoxProcessName.Items.Add(sessionControl.Process.ProcessName);
-
-                            }
-                        }
+                        listBoxProcessName.Items.Add(sessionControl.Process.ProcessName);
                     }
                 }
             }
-            Control.CheckForIllegalCrossThreadCalls = true;
         }
 
         private void buttonConfirm_Click(object sender, EventArgs e)
         {
-            selection = listBoxProcessName.Items[listBoxProcessName.SelectedIndex].ToString();
+            selection = listBoxProcessName.Items[listBoxProcessName.SelectedIndex].ToString()??"";
             this.DialogResult = DialogResult.OK;
             this.Close();
         }
