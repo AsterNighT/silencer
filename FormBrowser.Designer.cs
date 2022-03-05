@@ -28,6 +28,7 @@
         /// </summary>
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(FormBrowser));
             this.listBoxProcessName = new System.Windows.Forms.ListBox();
             this.buttonConfirm = new System.Windows.Forms.Button();
             this.SuspendLayout();
@@ -38,12 +39,12 @@
             this.listBoxProcessName.ItemHeight = 31;
             this.listBoxProcessName.Location = new System.Drawing.Point(35, 29);
             this.listBoxProcessName.Name = "listBoxProcessName";
-            this.listBoxProcessName.Size = new System.Drawing.Size(506, 314);
+            this.listBoxProcessName.Size = new System.Drawing.Size(302, 314);
             this.listBoxProcessName.TabIndex = 0;
             // 
             // buttonConfirm
             // 
-            this.buttonConfirm.Location = new System.Drawing.Point(601, 129);
+            this.buttonConfirm.Location = new System.Drawing.Point(371, 109);
             this.buttonConfirm.Name = "buttonConfirm";
             this.buttonConfirm.Size = new System.Drawing.Size(142, 134);
             this.buttonConfirm.TabIndex = 1;
@@ -55,11 +56,12 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(14F, 31F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(794, 374);
+            this.ClientSize = new System.Drawing.Size(542, 374);
             this.Controls.Add(this.buttonConfirm);
             this.Controls.Add(this.listBoxProcessName);
+            this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Name = "FormBrowser";
-            this.Text = "FormBrowser";
+            this.Text = "Process Browser";
             this.Load += new System.EventHandler(this.FormBrowser_Load);
             this.ResumeLayout(false);
 

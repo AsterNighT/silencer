@@ -4,6 +4,16 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 
+// The program hooks windows
+// EVENT_SYSTEM_FOREGROUND event(foreground window change)
+// Mute all other background audio source by Windos Audio API
+// when event procs, and use a whitelist to customize.
+
+// The rendering process may be not the audio process,
+// chrome is a great example.
+// So here use process name rather than process id to
+// identify whitelist and foreground process.
+
 namespace silencer
 {
     public partial class FormMain : Form
@@ -59,9 +69,13 @@ namespace silencer
             return Process.GetProcessById((int)pid).ProcessName;
         }
 
-        private void winEventProc(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
+        private void onForegroundWindowChange(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
         {
+            updateMuteTarget();
+        }
 
+        private void updateMuteTarget()
+        {
             var foregroundName = getForegroundWindowProcessName();
             Debug.WriteLine("Foreground name:" + foregroundName);
 
@@ -70,15 +84,20 @@ namespace silencer
             var whitelist = new HashSet<string>(globalWhitelist);
             rwLock.ReleaseReaderLock();
 
-            // The rendering process may be not the audio process,
-            // chrome is a great example.
-            // So here use process name rather than process id.
             whitelist.Add(getForegroundWindowProcessName());
 
-            mute(whitelist);
+            // Pretty sure bool is atomic, no lock for it
+            Mute(whitelist, isRunning);
         }
 
-        private int mute(HashSet<string> whitelist)
+        /// <summary>
+        /// Mute processes by given conditions.
+        /// </summary>
+        /// <param name="whitelist">A whitelist for processes that should
+        /// never get muted</param>
+        /// <param name="enabled">A global switch. If set to false all processes will be unmuted</param>
+        /// <returns></returns>
+        private int Mute(HashSet<string> whitelist, bool enabled)
         {
             var sessionEnumerator = AudioSession.GetAudioSessionEnumerator();
             foreach (var session in sessionEnumerator)
@@ -88,7 +107,7 @@ namespace silencer
                 {
                     Debug.WriteLine("process id:" + sessionControl.ProcessID);
                     Debug.WriteLine("process name:" + sessionControl.Process.ProcessName);
-                    simpleVolume.IsMuted = !whitelist.Contains(sessionControl.Process.ProcessName);
+                    simpleVolume.IsMuted = !whitelist.Contains(sessionControl.Process.ProcessName) && enabled;
                 }
             }
             return 0;
@@ -108,10 +127,11 @@ namespace silencer
         private void beginListening(object sender, EventArgs e)
         {
             isRunning = true;
-            dele = new WinEventDelegate(winEventProc);
+            dele = new WinEventDelegate(onForegroundWindowChange);
             hWinEventHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, dele, 0, 0, WINEVENT_OUTOFCONTEXT);
             buttonBegin.Enabled = !isRunning;
             buttonEnd.Enabled = isRunning;
+            updateMuteTarget();
         }
 
         private void endListening(object sender, EventArgs e)
@@ -120,7 +140,11 @@ namespace silencer
             UnhookWinEvent(hWinEventHook);
             buttonBegin.Enabled = !isRunning;
             buttonEnd.Enabled = isRunning;
+            updateMuteTarget();
         }
+
+        // Mute process should be triggered instantly after whitelist
+        // is modified, so as to reflect the change.
 
         private void buttonAddItem_Click(object sender, EventArgs e)
         {
@@ -139,6 +163,7 @@ namespace silencer
                 }
             }
 
+            updateMuteTarget();
         }
 
         private void buttonDeleteItem_Click(object sender, EventArgs e)
@@ -148,6 +173,7 @@ namespace silencer
             listBoxWhitelist.Items.RemoveAt(listBoxWhitelist.SelectedIndex);
             saveConfig();
             rwLock.ReleaseWriterLock();
+            updateMuteTarget();
         }
 
         private void saveConfig()
