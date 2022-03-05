@@ -120,6 +120,7 @@ namespace silencer
             listBoxWhitelist.Items.Clear();
             rwLock.AcquireWriterLock(int.MaxValue);
             globalWhitelist = new List<string>(settings.AppSettings.Settings["whitelist"]?.Value.Split(new char[] { ';' }) ?? new string[] { });
+            globalWhitelist = globalWhitelist.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList();
             listBoxWhitelist.Items.AddRange(globalWhitelist.ToArray());
             rwLock.ReleaseWriterLock();
         }
@@ -156,9 +157,12 @@ namespace silencer
                     string name = form.selection;            //values preserved after close
                     if (name == "") return;
                     rwLock.AcquireWriterLock(int.MaxValue);
-                    globalWhitelist.Add(name);
-                    listBoxWhitelist.Items.Add(name);
-                    saveConfig();
+                    if (!globalWhitelist.Contains(name))
+                    {
+                        globalWhitelist.Add(name);
+                        listBoxWhitelist.Items.Add(name);
+                        saveConfig();
+                    }
                     rwLock.ReleaseWriterLock();
                 }
             }
@@ -168,6 +172,7 @@ namespace silencer
 
         private void buttonDeleteItem_Click(object sender, EventArgs e)
         {
+            if (listBoxWhitelist.SelectedIndex == -1) return;
             rwLock.AcquireWriterLock(int.MaxValue);
             globalWhitelist.RemoveAt(listBoxWhitelist.SelectedIndex);
             listBoxWhitelist.Items.RemoveAt(listBoxWhitelist.SelectedIndex);
@@ -186,6 +191,12 @@ namespace silencer
             settings.Save(ConfigurationSaveMode.Modified);
             ConfigurationManager.RefreshSection("appSettings");
             rwLock.ReleaseReaderLock();
+        }
+
+        private void FormMain_FormClosed(object sender, FormClosedEventArgs e)
+        {
+            isRunning = false;
+            updateMuteTarget();
         }
     }
 }

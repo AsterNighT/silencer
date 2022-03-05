@@ -39,6 +39,7 @@ namespace silencer
 
         private void buttonConfirm_Click(object sender, EventArgs e)
         {
+            if (listBoxProcessName.SelectedIndex == -1) return;
             selection = listBoxProcessName.Items[listBoxProcessName.SelectedIndex].ToString()??"";
             this.DialogResult = DialogResult.OK;
             this.Close();
