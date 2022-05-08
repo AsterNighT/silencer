@@ -7,12 +7,12 @@ using System.Text;
 // The program hooks windows
 // EVENT_SYSTEM_FOREGROUND event(foreground window change)
 // Mute all other background audio source by Windos Audio API
-// when event procs, and use a whitelist to customize.
+// when event procs, and use a list to customize.
 
 // The rendering process may be not the audio process,
 // chrome is a great example.
 // So here use process name rather than process id to
-// identify whitelist and foreground process.
+// identify list and foreground process.
 
 namespace silencer
 {
@@ -26,16 +26,24 @@ namespace silencer
             buttonEnd.Enabled = isRunning;
         }
 
+        enum WorkMode
+        {
+            Blacklist,
+            Whitelist
+        }
+
+        WorkMode workMode;
+
         bool isRunning;
 
-        // This is a lock for the global whitelist. So as to make it possible
-        // to modify the whitelist while listening.
+        // This is a lock for the global list. So as to make it possible
+        // to modify the list while listening.
         // Actually this rwLock is very much the same as a mutex,
         // I can hardly come up with such a situation in which multiple
-        // threads are reading the whitelist at the same time.
+        // threads are reading the list at the same time.
         // If so, the event handler will be running too slow.
         ReaderWriterLock rwLock = new ReaderWriterLock();
-        List<string> globalWhitelist;
+        List<string> globalList;
 
         delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
 
@@ -81,23 +89,25 @@ namespace silencer
 
             // Do not care about the waiting time ,just make it INF;
             rwLock.AcquireReaderLock(int.MaxValue);
-            var whitelist = new HashSet<string>(globalWhitelist);
+            var list = new HashSet<string>(globalList);
+            var mode = workMode;
             rwLock.ReleaseReaderLock();
 
-            whitelist.Add(getForegroundWindowProcessName());
+            if (mode == WorkMode.Blacklist) list.Remove(getForegroundWindowProcessName());
+            if (mode == WorkMode.Whitelist) list.Add(getForegroundWindowProcessName());
 
             // Pretty sure bool is atomic, no lock for it
-            Mute(whitelist, isRunning);
+            Mute(list, mode, isRunning);
         }
 
         /// <summary>
         /// Mute processes by given conditions.
         /// </summary>
-        /// <param name="whitelist">A whitelist for processes that should
-        /// never get muted</param>
+        /// <param name="list">A list for processes that should
+        /// never get muted if whitelisted, or those will be muted if blacklisted</param>
         /// <param name="enabled">A global switch. If set to false all processes will be unmuted</param>
         /// <returns></returns>
-        private int Mute(HashSet<string> whitelist, bool enabled)
+        private int Mute(HashSet<string> list, WorkMode mode, bool enabled)
         {
             var sessionEnumerator = AudioSession.GetAudioSessionEnumerator();
             foreach (var session in sessionEnumerator)
@@ -107,7 +117,14 @@ namespace silencer
                 {
                     Debug.WriteLine("process id:" + sessionControl.ProcessID);
                     Debug.WriteLine("process name:" + sessionControl.Process.ProcessName);
-                    simpleVolume.IsMuted = !whitelist.Contains(sessionControl.Process.ProcessName) && enabled;
+                    if (workMode == WorkMode.Blacklist)
+                    {
+                        simpleVolume.IsMuted = list.Contains(sessionControl.Process.ProcessName) && enabled;
+                    }
+                    if (workMode == WorkMode.Whitelist)
+                    {
+                        simpleVolume.IsMuted = !list.Contains(sessionControl.Process.ProcessName) && enabled;
+                    }
                 }
             }
             return 0;
@@ -117,12 +134,14 @@ namespace silencer
         {
             var settings =
             ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
-            listBoxWhitelist.Items.Clear();
+            listBoxList.Items.Clear();
             rwLock.AcquireWriterLock(int.MaxValue);
-            globalWhitelist = new List<string>(settings.AppSettings.Settings["whitelist"]?.Value.Split(new char[] { ';' }) ?? new string[] { });
-            globalWhitelist = globalWhitelist.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList();
-            listBoxWhitelist.Items.AddRange(globalWhitelist.ToArray());
+            globalList = new List<string>(settings.AppSettings.Settings["list"]?.Value.Split(new char[] { ';' }) ?? new string[] { });
+            globalList = globalList.Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().ToList();
+            listBoxList.Items.AddRange(globalList.ToArray());
             rwLock.ReleaseWriterLock();
+            this.comboBoxMode.SelectedIndex = 0;
+            workMode = WorkMode.Blacklist;
         }
 
         private void beginListening(object sender, EventArgs e)
@@ -144,7 +163,7 @@ namespace silencer
             updateMuteTarget();
         }
 
-        // Mute process should be triggered instantly after whitelist
+        // Mute process should be triggered instantly after list
         // is modified, so as to reflect the change.
 
         private void buttonAddItem_Click(object sender, EventArgs e)
@@ -157,10 +176,10 @@ namespace silencer
                     string name = form.selection;            //values preserved after close
                     if (name == "") return;
                     rwLock.AcquireWriterLock(int.MaxValue);
-                    if (!globalWhitelist.Contains(name))
+                    if (!globalList.Contains(name))
                     {
-                        globalWhitelist.Add(name);
-                        listBoxWhitelist.Items.Add(name);
+                        globalList.Add(name);
+                        listBoxList.Items.Add(name);
                         saveConfig();
                     }
                     rwLock.ReleaseWriterLock();
@@ -172,10 +191,10 @@ namespace silencer
 
         private void buttonDeleteItem_Click(object sender, EventArgs e)
         {
-            if (listBoxWhitelist.SelectedIndex == -1) return;
+            if (listBoxList.SelectedIndex == -1) return;
             rwLock.AcquireWriterLock(int.MaxValue);
-            globalWhitelist.RemoveAt(listBoxWhitelist.SelectedIndex);
-            listBoxWhitelist.Items.RemoveAt(listBoxWhitelist.SelectedIndex);
+            globalList.RemoveAt(listBoxList.SelectedIndex);
+            listBoxList.Items.RemoveAt(listBoxList.SelectedIndex);
             saveConfig();
             rwLock.ReleaseWriterLock();
             updateMuteTarget();
@@ -186,8 +205,8 @@ namespace silencer
             var settings =
             ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
             rwLock.AcquireReaderLock(int.MaxValue);
-            settings.AppSettings.Settings.Remove("whitelist");
-            settings.AppSettings.Settings.Add("whitelist", string.Join(';', globalWhitelist));
+            settings.AppSettings.Settings.Remove("list");
+            settings.AppSettings.Settings.Add("list", string.Join(';', globalList));
             settings.Save(ConfigurationSaveMode.Modified);
             ConfigurationManager.RefreshSection("appSettings");
             rwLock.ReleaseReaderLock();
@@ -197,6 +216,42 @@ namespace silencer
         {
             isRunning = false;
             updateMuteTarget();
+        }
+
+        private void Reveal()
+        {
+            this.WindowState = FormWindowState.Normal;
+            this.ShowInTaskbar = true;
+            this.Activate();
+        }
+        private void Conceal()
+        {
+            this.WindowState = FormWindowState.Minimized;
+            this.ShowInTaskbar = false;
+        }
+
+        private void toolStripMenuItemShow_Click(object sender, EventArgs e)
+        {
+            this.Reveal();
+        }
+
+        private void toolStripMenuItemExit_Click(object sender, EventArgs e)
+        {
+            this.Dispose();
+            this.Close();
+        }
+
+        private void FormMain_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            e.Cancel = true;
+            this.Conceal();
+        }
+
+        private void comboBoxMode_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            rwLock.AcquireWriterLock(int.MaxValue);
+            workMode = (WorkMode)comboBoxMode.SelectedIndex;
+            rwLock.ReleaseWriterLock();
         }
     }
 }
