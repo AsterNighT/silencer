@@ -1,5 +1,24 @@
 # Silencer
 
+> Silence!
+
+## What is this?
+
+Silencer can mute unfocused window for you. It detects foreground window changing and mute/unmute them automatically. It is intended for muting certain applications that are not smart enough to mute themselves in background. (Stellaris, for example.)
+
+Silencer now works in two modes:
+
+1. Blacklist: Only listed applications will be muted.
+2. Whitelist: Listed applications will not be muted.
+
+## Know issues
+
+1. Silencer would override your manual settings in the volume mixer.
+2. The application are identified by `ProcessName`. In some cases there could be conflicts.
+3. It only work on windows, and I only tested it on a few versions of windows 11.
+-----
+# Silencer
+
 > 都给我闭嘴！
 
 ## 这是什么？
